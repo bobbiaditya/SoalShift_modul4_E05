@@ -128,7 +128,8 @@ if(!strncmp(path,"/YOUTUBER", 9)){  // jika di folder YOUTUBER
 (pada xmp_mkdir)
 
 
-Jika folder tersebut berada pada folder YOUTUBER, maka permissionnya akan diubah menggunakan chmon menjadi 750
+Jika folder tersebut berada pada folder YOUTUBER, maka permissionnya akan diubah menggunakan chmode menjadi 750
+
 
 ### Pembuatan file baru
 ```c
@@ -169,6 +170,57 @@ static int xmp_utimens(const char *ppath, const struct timespec ts[2])
 ```
 
 Proses di atas digunakan pada saat pembuatan file baru(proses _touch_). Jika ada pembuatan file baru pada folder YOUTUBER maka akan ditambahkan `.iz1` di bagian belakang file. Kita juga perlu melakukan enkrip dekrip pada file tersebut
+
+### Ubah Permision File
+```c
+static int xmp_chmod(const char *ppath, mode_t mode)
+{
+	int res;
+	char fpath[1000];
+	char path[1000];
+	strcpy(path, ppath);
+
+	// nentuin di folder YOUTUBER apa nggak
+	int pathDiff = strncmp(path, "/YOUTUBER", 9);
+
+	// compare filename dengan regex .iz1
+	// apakah memiliki ekstensi iz1
+	reti = regcomp(&regex, ".*\\.iz1$", 0);
+	reti = regexec(&regex, path, 0, NULL, 0);
+
+	enc(path);
+
+	if(strcmp(path,"/") == 0)
+	{
+		strcpy(path,dirpath);;
+		sprintf(fpath,"%s",path);
+	}
+	else sprintf(fpath, "%s%s",dirpath,path);
+
+	struct stat stbuf;
+	stat(fpath, &stbuf);
+
+	// jika file biasa (bukan folder)
+	// sama math patternnya (file .iz1)
+	if(!reti && S_ISREG(stbuf.st_mode)) { // MATCH
+		// kasih pesan error
+		perror("File ekstensi iz1 tidak boleh diubah permissionnya");
+
+		// langsung balik
+		return -errno;
+	}
+
+	res = chmod(fpath, mode);
+
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+```
+Kodingan diatas berguna untuk melakukan pengecekan apakah ada nama file yang memiliki extension `.iz1.`
+
+Jika file tersebut tidak memiliki extension `.iz1` maka akan ditampilkan kode error `"File ekstensi iz1 tidak boleh diubah permissionnya"` sesuai pada perintah soal
 
 ## Nomor 5
 Pada soal nomor 5 kita diminta pada saat kita mengedit suatu file dan melakukan save, makan akan terbuat folder baru `Backup` kemudian hasil dari save tersebut akan disimpan pada backup dengan nama `namafile_[timestamp].ekstensi.
@@ -234,7 +286,8 @@ int bkname(char * ppath){
 	strcpy(ppath, res);
 }
 ```
-Fungsi diatas digunakan untuk mengubah nama file menjadi filename backup agar sesuai ketentuan
+Fungsi diatas digunakan untuk mengubah nama file menjadi filename backup agar sesuai dengan ketentuan soal yang ada.
+
 
 
 ```c
@@ -267,8 +320,7 @@ int dlname(char * ppath){
 
 }
 ```
-
-Fungsi diatas digunakan untuk mengubah nama file menjadi filename deleted agar sesuai dengan ketentuan
+Fungsi diatas digunakan untuk mengubah nama file menjadi filename deleted agar sesuai dengan ketentuan soal yang ada
 
 ### Encrypt spesial
 ```
@@ -382,7 +434,9 @@ static int xmp_write(const char *ppath, char *buf, size_t size,
 	return res;
 }
 ```
-Kodingan diatas berguna untuk pembuatan folder baru(backup)
+Kodingan diatas berguna untuk pembuatan folder baru(backup). Kita perlu mengecek apakah yang kita backup bukan file temporary seperti(`.swx, .swp, .swo`)
+
+Kemudian kita akan membuat file sesuai dengan ketentuan backup yang ada, dan mencopy isi dari file tersebut ke dalam backup file.
 
 ### Proses Delete
 ```c
@@ -478,6 +532,8 @@ static int xmp_unlink(const char *ppath)
 ```
 
 Untuk melakukan proses delete, awalnya kita perlu membuat folder recycle bin.
+
+Kita perlu mengecek apakah yang kita backup bukan file temporary seperti(`.swx, .swp, .swo`)
 
 Kemudian ktia harus mengecek namafile, path file tersebut dan mengenkripsinya juga.
 
