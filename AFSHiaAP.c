@@ -1,6 +1,7 @@
 ///////xmp lib https://github.com/rfjakob/fuse/blob/master/example/fusexmp_fh.c
 
 #define FUSE_USE_VERSION 28
+#include <sys/wait.h>
 #include <fuse.h>
 #include <stdio.h>
 #include <string.h>
@@ -21,6 +22,148 @@ char key[97] = "qE1~ YMUR2\"`hNIdPzi%^t@(Ao:=CQ,nx4S[7mHFye#aT6+v)DfKL$r?bkOGB>}
 
 regex_t regex;
 int reti;
+
+// name -> allname
+// no 5 (ngubah nama biasa -> nama berwildcard)
+// dipake buat hapus
+int allname(char * ppath){
+	char *ext = strrchr(ppath, '.'); 
+
+	char fnext[1000];
+
+	if(ext){
+		memset(fnext, '\0', strlen(ppath)-strlen(ext)+1);
+		strncpy(fnext, ppath, strlen(ppath)-strlen(ext));
+	} else {
+		strcpy(fnext, ppath);
+	}
+
+	char res[1000];
+
+	memset(res, '\0', strlen(ppath)+40);
+	sprintf(res, "/Backup/%s", fnext);
+
+	strcpy(ppath, res);
+}
+
+// name -> bkname
+// no 5, ngubah filename biasa
+// menjadi filename backup
+// (yang ada timestampnya)
+int bkname(char * ppath){
+	char *ext = strrchr(ppath, '.'); 
+
+	char fnext[1000];
+
+	if(ext){
+		memset(fnext, '\0', strlen(ppath)-strlen(ext)+1);
+		strncpy(fnext, ppath, strlen(ppath)-strlen(ext));
+	} else {
+		strcpy(fnext, ppath);
+	}
+
+	time_t now = time(NULL);
+	char strnow[1000];
+	strftime(strnow, 40, "%Y-%m-%d_%H:%M:%S", localtime(&now));
+
+	char res[1000];
+
+	memset(res, '\0', strlen(ppath)+40);
+	sprintf(res, "%s_%s%s", fnext, strnow, ext);
+
+	strcpy(ppath, res);
+}
+
+// name -> dlname
+// no 5, ngubah filename biasa
+// menjadi filename deleted
+// (yang ada deleted_timestampnya)
+int dlname(char * ppath){
+	char *ext = strrchr(ppath, '.'); 
+
+	char fnext[1000];
+
+	if(ext){
+		memset(fnext, '\0', strlen(ppath)-strlen(ext)+1);
+		strncpy(fnext, ppath, strlen(ppath)-strlen(ext)); // 20 = len(timestamp)
+	} else {
+		strcpy(fnext, ppath);
+	}
+
+	time_t now = time(NULL);
+	char strnow[1000];
+	strftime(strnow, 40, "%Y-%m-%d_%H:%M:%S", localtime(&now));
+
+	char res[1000];
+
+	memset(res, '\0', strlen(ppath)+40);
+	sprintf(res, "%s_deleted_%s.zip", fnext, strnow);
+
+	strcpy(ppath, res);
+
+}
+
+// fullpath -> curfname
+// fullpath /home/anggar/.../filename.txt
+// -> filename.txt aja
+int gname(char * ppath){
+	char *parpath = strrchr(ppath, '/');
+	char fnext[1000];
+
+	if(parpath){
+		strcpy(fnext, parpath+1);
+	} else {
+		strcpy(fnext, ppath);
+	}
+
+	strcpy(ppath, fnext);
+}
+
+// fullpath -> parpname
+// fullpath /home/anggar/.../filename.txt
+// -> parent path aja
+// /home/anggar/.../
+int pname(char * ppath){
+	char *parpath = strrchr(ppath, '/');
+	char fnext[1000];
+
+	if(*ppath == *parpath){
+		strcpy(ppath, "/");
+		return 0;
+	} else if(parpath){
+		memset(fnext, '\0', strlen(ppath)-strlen(parpath)+1);
+		strncpy(fnext, ppath, strlen(ppath)-strlen(parpath)+1); // include the '/' tail
+	} else {
+		strcpy(fnext, ppath);
+	}
+
+	strcpy(ppath, fnext);
+}
+
+// encrypt special
+// jika ` tergantikan *
+// untuk wildcard
+// no 5
+void encs(char * input)
+{
+	if(!strcmp(input,".") || !strcmp(input,"..")) return;
+
+	for(int i=0;i<strlen(input);i++)
+	{
+		if(input[i]=='*') continue;
+		for(int j=0;j<94;j++){
+			if(input[i]==key[j]){
+				if(key[(j+17)%94] == '`'){
+					input[i] = '*';
+				} else {
+					input[i] = key[(j+17)%94];
+				}
+
+				break;
+			}
+		}
+	}
+}
 
 void enc(char * input)
 {
@@ -45,7 +188,7 @@ void dec(char * input)
 	{
 		for(int j=0;j<94;j++){
 			if(input[i]==key[j]){
-				input[i] = key[(j+77)%94];
+			input[i] = key[(j+94-17)%94];
 				break;
 			}
 		}
@@ -64,6 +207,7 @@ static void* pre_init(struct fuse_conn_info *conn){
 	return NULL;
 }
 
+// no 1 dan nomor 4
 static const int xmp_getattr(const char *ppath, struct stat *stbuf)
 {
 	int res;
@@ -79,8 +223,11 @@ static const int xmp_getattr(const char *ppath, struct stat *stbuf)
 	// menangani waktu touch
 	if (res == -1){
 		dec(path);
+		// ngecek parent folder harus
+		// YOUTUBER
 		if(!strncmp(path, "/YOUTUBER", 9)){
 			dec(fpath);
+			// nambah filename + .iz1
 			strcat(fpath, ".iz1");
 			enc(fpath);
 
@@ -95,6 +242,8 @@ static const int xmp_getattr(const char *ppath, struct stat *stbuf)
 	return 0;
 }
 
+// ls
+// buat nomor 1 dan 3
 static int xmp_readdir(const char *ppath, void *buf, fuse_fill_dir_t filler,
 	off_t offset, struct fuse_file_info *fi)
 {
@@ -132,9 +281,11 @@ static int xmp_readdir(const char *ppath, void *buf, fuse_fill_dir_t filler,
 		// dapatkan user berkas aslinya
 		struct stat tmstat;
 		stat(meureum, &tmstat);
+		// dapetin user & groupname (3)
 		struct passwd *ireum = getpwuid(tmstat.st_uid);
 		struct group *gruppe = getgrgid(tmstat.st_gid);
 
+		// (3) cek perbedaan user & group
 		int ireumDiffA = strcmp(ireum->pw_name, "chipset");
 		int ireumDiffB = strcmp(ireum->pw_name, "ic_controller");
 		int gruppeDiff = strcmp(gruppe->gr_name, "rusak");
@@ -144,9 +295,11 @@ static int xmp_readdir(const char *ppath, void *buf, fuse_fill_dir_t filler,
 
 		// printf(":: %d %d %s", ireum->pw_uid, ireumDiffA, ireum->pw_name);
 
+		// (3) jika metadata berkas memenuhi prasyarat
+		// masuk ke if
 		if((!ireumDiffA || !ireumDiffB) && 
 			!gruppeDiff && 
-			!(tmstat.st_mode & 0444)) { // Gak bisa dibaca
+			!(tmstat.st_mode & 0444)) { // Gak bisa dibaca (0444)
 			strcpy(miris, dirpath);
 			strcpy(miramar, "/filemiris.txt"); // diroot
 			enc(miramar);
@@ -155,14 +308,15 @@ static int xmp_readdir(const char *ppath, void *buf, fuse_fill_dir_t filler,
 			fp = fopen(miris, "a+"); // TODO: ganti a aja
 
 			// Untuk dapat tanggal
-			// need improvement for atime
 			strftime(timestr, 40, "%y%m%d (%H:%M:%S)", localtime(&tmstat.st_atime));
 			fprintf(fp, "%s\t%d:%d\t%s\t%s\n", timestr, ireum->pw_uid, gruppe->gr_gid, path, yeoreum);
 
+			// ngehapus file bahaya tersebut
 			remove(meureum);
 
 			fclose(fp);
 		} else {
+			// ngelist biasa
 			if (filler(buf, yeoreum, &st, 0))
 				break;
 		}
@@ -219,11 +373,11 @@ static int xmp_mkdir(const char *ppath, mode_t mode)
 	char path[1000];
 	strcpy(path, ppath);
 
-	// buat folder youtuber
-	mode_t cmode = mode;
-	if(!strncmp(path,"/YOUTUBER", 9)){
+	// (4) cmode buat modifikasi mode
+	mode_t cmode = mode; // mode default
+	if(!strncmp(path,"/YOUTUBER", 9)){  // jika di folder YOUTUBER
 		printf("UYEEEE .. ");
-		cmode = 0750;
+		cmode = 0750; // ubah permissionnya jadi 750
 	}
 
 	enc(path);
@@ -241,12 +395,55 @@ static int xmp_mkdir(const char *ppath, mode_t mode)
 	return 0;
 }
 
+// waktu mau hapus, perlu fname sama ekstension
+// dipisah
+// nomor (5)
 static int xmp_unlink(const char *ppath)
 {
 	int res;
 	char fpath[1000];
 	char path[1000];
+	char filname[1000];
+	char delname[1000];
+	char ballname[1000];
+	char ext[100];
+
+	// buat nama folder di RecycleBin
+	char folder[1000];
+	sprintf(folder, "/RecycleBin");
+	enc(folder);
+	char ffolder[1000];
+	sprintf(ffolder, "%s%s", dirpath, folder);
+	mkdir(ffolder, 0775);
+
+	// buat ngefork
+	pid_t child1, child2;
+	int status;
+
+	int doBackup = 1;
+
+	// jika bukan file temporary kaya .swp, .swx
+	// .swo, dan .ekstensi~ (tilde)
+	if(strstr(ppath, ".sw") != NULL) doBackup = 0;
+	if(strstr(ppath, "~") != NULL) doBackup = 0;
+
 	strcpy(path, ppath);
+	strcpy(filname, ppath);
+	strcpy(ext, ppath);
+
+	// dapetin filenamenya dari full path
+	gname(filname);
+
+	strcpy(delname, "/RecycleBin/");
+	strcat(delname, filname);
+	// dapetin format file untuk file
+	// yang akan dihapus
+	dlname(delname);
+
+	strcpy(ballname, filname);
+	// dapatin file buat wildcard *
+	allname(ballname);
+
 	enc(path);
 	if(strcmp(path,"/") == 0)
 	{
@@ -254,6 +451,33 @@ static int xmp_unlink(const char *ppath)
 		sprintf(fpath,"%s",path);
 	}
 	else sprintf(fpath, "%s%s",dirpath,path);
+
+	enc(ballname);
+	enc(delname);
+	// postfix _e untuk encrypted filename + dirpath
+	char ballname_e[1000];
+	char delname_e[1000];
+	sprintf(ballname_e, "%s%s", dirpath, ballname);
+	sprintf(delname_e, "%s%s", dirpath, delname);
+
+	// buat child process untuk execute proses
+	// buat ngezip sama ngehapus
+	child1 = fork();
+
+	// nyimpan command buat ngezip sama hapus
+	// backup (5)
+	char cmd[1000];
+	sprintf(cmd, "zip '%s' '%s' '%s'* && rm -f '%s'*", delname_e, fpath, ballname_e, ballname_e);
+
+	if(doBackup && (child1 == 0)) { // child
+		// buat execute command
+		execl("/bin/sh", "/bin/sh", "-c", cmd, NULL);
+	}
+
+	// nunggu child selesai dulu
+	while((wait(&status)) > 0);
+
+	// baru hapus
 	res = unlink(fpath);
 	if (res == -1)
 		return -errno;
@@ -298,6 +522,7 @@ static int xmp_rename(char *from, char *to)
 }
 
 // IZ*ONE
+// (5) buat ngubah permission
 static int xmp_chmod(const char *ppath, mode_t mode)
 {
 	int res;
@@ -305,10 +530,12 @@ static int xmp_chmod(const char *ppath, mode_t mode)
 	char path[1000];
 	strcpy(path, ppath);
 
+	// nentuin di folder YOUTUBER apa nggak
 	int pathDiff = strncmp(path, "/YOUTUBER", 9);
 
+	// compare filename dengan regex .iz1
+	// apakah memiliki ekstensi iz1
 	reti = regcomp(&regex, ".*\\.iz1$", 0);
-
 	reti = regexec(&regex, path, 0, NULL, 0);
 
 	enc(path);
@@ -323,9 +550,13 @@ static int xmp_chmod(const char *ppath, mode_t mode)
 	struct stat stbuf;
 	stat(fpath, &stbuf);
 
+	// jika file biasa (bukan folder)
+	// sama math patternnya (file .iz1)
 	if(!reti && S_ISREG(stbuf.st_mode)) { // MATCH
+		// kasih pesan error
 		perror("File ekstensi iz1 tidak boleh diubah permissionnya");
 
+		// langsung balik
 		return -errno;
 	}
 
@@ -377,6 +608,8 @@ static int xmp_truncate(const char *ppath, off_t size)
 	return 0;
 }
 
+// touch kan sebenernya ngubah waktu modifikasinya
+// kalau gak salah, jadi doi bakal ngecall fungsi ini
 static int xmp_utimens(const char *ppath, const struct timespec ts[2])
 {
 	int res;
@@ -395,10 +628,11 @@ static int xmp_utimens(const char *ppath, const struct timespec ts[2])
 	if (res == -1){
 		// menangani waktu touch
 		dec(path);
+		// (4) jika di folder YOUTUBER
 		if(!strncmp(path, "/YOUTUBER", 9)){
-			dec(fpath);
-			strcat(fpath, ".iz1");
-			enc(fpath);
+			dec(fpath); // dekrip bentar ...
+			strcat(fpath, ".iz1"); // tambah .iz1
+			enc(fpath); // .. baru enkrip lagi
 
 			if(utimensat(0, fpath, ts, AT_SYMLINK_NOFOLLOW)!= -1){
 				return 0;
@@ -460,6 +694,7 @@ static int xmp_read(const char *ppath, char *buf, size_t size, off_t offset,
 	return res;
 }
 
+// no (4), waktu ngesave
 static int xmp_write(const char *ppath, char *buf, size_t size,
 	off_t offset, struct fuse_file_info *fi)
 {
@@ -467,7 +702,36 @@ static int xmp_write(const char *ppath, char *buf, size_t size,
 	int res;
 	char fpath[1000];
 	char path[1000];
+	char bkpath[1000];
+	char bkpath_e[1000];
+	char parname[1000];
+	char filname[1000];
 	strcpy(path, ppath);
+	strcpy(parname, ppath);
+	strcpy(filname, ppath);
+	pid_t child1;
+
+	// buat ngecreate folder
+	char folder[1000];
+	sprintf(folder, "/Backup");
+	enc(folder);
+	char ffolder[1000];
+	sprintf(ffolder, "%s%s", dirpath, folder);
+	mkdir(ffolder, 0775); // ini nih waktu buat foldernya
+
+	gname(filname); // versi non-timestamped
+	pname(parname); // dapetin parent path-nya
+
+	// karena filename tidak mengandung /
+	strcpy(bkpath, "/Backup/");
+	strcat(bkpath, filname);
+
+	int doBackup = 1;
+
+	// pastikan bukan file temporary
+	// kaya .swx, .swp, .swo
+	if(strstr(ppath, ".sw") != NULL) doBackup = 0;
+
 	enc(path);
 	if(strcmp(path,"/") == 0)
 	{
@@ -475,6 +739,30 @@ static int xmp_write(const char *ppath, char *buf, size_t size,
 		sprintf(fpath,"%s",path);
 	}
 	else sprintf(fpath, "%s%s",dirpath,path);
+
+	printf("BACKUP?: %d, %s, %s\n", doBackup, fpath, ppath);
+
+	if(doBackup){
+		// buat ngegenerate format backupnya
+		bkname(bkpath);
+		enc(bkpath);
+		sprintf(bkpath_e, "%s%s", dirpath, bkpath);
+		printf("%s\n", bkpath_e);
+
+		child1 = fork();
+
+		// langsung copy aja filenya
+		// gak usah pake fwrite
+		char *argv[4] = {"cp", fpath, bkpath_e, NULL};
+		printf("WILL BE COPIED: %s %s\n", fpath, bkpath_e);
+		if(child1 == 0){
+			execv("/bin/cp", argv);
+		}
+	}
+
+	// gak penting buat debug aja, yang atas juga	
+	printf("BACKUP?: %d, %s, %s\n", doBackup, fpath, ppath);
+
 	(void) fi;
 	fd = open(fpath, O_WRONLY);
 	if (fd == -1)
@@ -500,70 +788,18 @@ static int xmp_create(const char *ppath, mode_t mode, struct fuse_file_info *fi)
 	char bkpath[1000];
 	mode_t cmode = mode;
 	strcpy(path, ppath);
-	// enc(path);
 
-	// folder youtuber
 	if(!strncmp(path, "/YOUTUBER", 9)){
 		strcat(path, ".iz1");
 		cmode = 0640;
 	}
 
-	// Ketika akan membuat file swap
-	// reti = regcomp(&regex, ".*\\.swp$", 0);
-	// reti = regexec(&regex, path, 0, NULL, 0);
-
 	strcpy(bpath, path);
-	char spp* = strstr(bpath, ".swp");
-
-//	if(spp) {
-//		char bkF = "/Backup";
-//		char rbF = "/RecycleBin";
-//
-//		strcpy(spp, "");
-//
-//		time_t n = time(NULL);
-//		strftime(strtime, 40, "_%Y-%m-%d_%H:%M:%S", localtime(&now));
-
-//		sprintf(bkpath, "%s/Backup/%s%s", dirpath, bpath, strtime);
-
-		// Jika dihapus
-		// sprintf(zipname, "%s/RecycleBin/%s_deleted_%s.zip", dirpath, bpath, strtime);
-///
-//		pid_t erzi1, erzi2;
-//		erzi1 = fork();
-//
-//		if(erzi1 == 0) {
-//			enc(path);
-//			sprintf(fpath, "%s%s", dirpath, path);
-//		}
-//
-//	}
-
 
 	enc(path);
 	sprintf(fpath, "%s%s", dirpath, path);
 
 	res = creat(fpath, cmode);
-
-	// fd = open(path, fi->flags, mode);
-	// if (fd == -1)
-	// 	return -errno;
-
-	// fi->fh = fd;
-
-	// Waktu dia akan create file
-
-	// retina = regcomp(&xeger, ".*([^/]*\\.swp)$");
-	// size_t maxGroups = 3;
-	// regmatch_t groupArrays[maxGroups];
-
-	// dec(fpath);
-
-	// retina = regexec(&xeger, fpath, maxGroups, groupArrays, 0);
-
-	// if(!reti){ // MATCH
-
-	// }
 
 	if (res == -1) return -errno;
 
@@ -598,3 +834,11 @@ int main(int argc, char *argv[])
 	umask(0);
 	return fuse_main(argc, argv, &xmp_oper, NULL);
 }
+
+
+// 1 -> readdir, getattr
+// 2 -> mbuh
+// 3 -> readdir (yang if banyak tadi)
+// 4 -> mkdir, utimens (waktu buat file), chmod
+// 5 -> fungsi utilitas *name (buat ngubah path)
+//   -> write, unlink (hapus)
