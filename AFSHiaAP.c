@@ -5,6 +5,7 @@
 #include <fuse.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -15,6 +16,8 @@
 #include <errno.h>
 #include <grp.h>
 #include <pwd.h>
+
+#define BUFFSIZE 4096
 
 static char *dirpath = "/home/anggar/shift4";
 
@@ -153,10 +156,10 @@ void encs(char * input)
 		if(input[i]=='*') continue;
 		for(int j=0;j<94;j++){
 			if(input[i]==key[j]){
-				if(key[(j+17)%94] == '`'){
+				if(key[(j+31)%94] == '`'){
 					input[i] = '*';
 				} else {
-					input[i] = key[(j+17)%94];
+					input[i] = key[(j+31)%94];
 				}
 
 				break;
@@ -173,7 +176,7 @@ void enc(char * input)
 	{
 		for(int j=0;j<94;j++){
 			if(input[i]==key[j]){
-				input[i] = key[(j+17)%94];
+				input[i] = key[(j+31)%94];
 				break;
 			}
 		}
@@ -188,13 +191,51 @@ void dec(char * input)
 	{
 		for(int j=0;j<94;j++){
 			if(input[i]==key[j]){
-			input[i] = key[(j+94-17)%94];
+			input[i] = key[(j+94-31)%94];
 				break;
 			}
 		}
 	}
 }
 
+// untuk mendapat nama tanpa ekstensi
+int namenoext(char * ppath){
+	char *ext = strrchr(ppath, '.'); 
+
+	char fnext[1000];
+
+	if(ext){
+		memset(fnext, '\0', strlen(ppath)-strlen(ext)+1);
+		strncpy(fnext, ppath, strlen(ppath)-strlen(ext));
+	} else {
+		strcpy(fnext, ppath);
+	}
+
+	char res[1000];
+
+	memset(res, '\0', strlen(ppath)+40);
+	sprintf(res, "%s", fnext);
+
+	strcpy(ppath, res);
+}
+
+// untuk compare string
+int decalphasort(const struct dirent **a, const struct dirent **b){
+	char cstr1[1000];
+	char cstr2[1000];
+
+	strcpy(cstr1, (*a)->d_name);
+	strcpy(cstr2, (*b)->d_name);
+
+	dec(cstr1);
+	dec(cstr2);
+
+	int ret = strcoll(cstr1, cstr2);
+
+	return ret;
+}
+
+// waktu mau ngemount
 static void* pre_init(struct fuse_conn_info *conn){
 	// Create Videos folder in main
 	char folder[40] = "/Videos";
@@ -202,6 +243,95 @@ static void* pre_init(struct fuse_conn_info *conn){
 	char fpath[1000];
 	sprintf(fpath,"%s%s", dirpath, folder);
 	mkdir(fpath, 0775);
+
+	DIR *dp;
+	pid_t child;
+	int i, n, k;
+
+	char combinename[1000];
+	char filename[1000];
+	char pathasli[1000];
+	char dname_dec[1000];
+	char cideos[] = "/Videos/";
+	enc(cideos);
+	sprintf(combinename, "%s%s", dirpath, cideos);
+
+	// enc(combinename);
+
+	dp = opendir(dirpath);
+
+	if (dp == NULL) return -errno;
+
+	// regex untuk menyocokan berkas yang .001 .002 dst
+	reti = regcomp(&regex, ".*\\.[0-9][0-9][0-9]", 0);
+
+	child = fork();
+
+	// child process  buat join vid
+	if(child == 0) { // child
+		int fp1, fp2;
+		char buf[BUFFSIZE];
+		struct dirent **dlist;
+
+		// dengan scandir dan komparator kustom
+		// decalphasort, dipastikan file
+		// akan berurutan
+		n = scandir(dirpath, &dlist, 0, decalphasort);
+		
+		for(i=0; i<n; i++) {
+			// dec(combinename);
+			//jika file regex sesuai dengan yang diinginkan
+
+			strcpy(dname_dec, dlist[i]->d_name);
+			dec(dname_dec);
+
+			// pencocokan berkas dengan regex
+			reti = regexec(&regex, dname_dec, 0, NULL, 0);
+
+			if(!reti){ 
+				strcpy(filename, dname_dec);
+				sprintf(pathasli, "%s/%s", dirpath, dlist[i]->d_name);
+				namenoext(filename);
+				enc(filename);
+				strcat(combinename, filename);
+				dec(filename);
+
+				// file yang akan dibaca
+				fp1 = open(pathasli, O_RDONLY);
+
+				printf("\nFILENAME: %s, %s\n", combinename, pathasli);
+
+				// could be segfault either because the file
+				// directed is folder, or the parent directory
+				// doesn't exist
+				// fpath file yang akan digabungkan
+				// pake mode append
+				fp2 = open(combinename, O_WRONLY | O_APPEND | O_CREAT, 0775);
+
+				// pindah kursor ke belakang dulu
+				lseek(fp2, 0, SEEK_END);
+
+				// baru append, perlahan demi perlahan
+				// sampai isi dari fp1 habis
+				while((k = read(fp1, buf, BUFFSIZE)) > 0){
+					write(fp2, buf, k);
+				}
+
+				// tutup semuanya
+				close(fp1);
+				close(fp2);
+			}
+
+			printf("\nCBNAME: %s, %s\n", combinename, dname_dec);
+
+			sprintf(combinename, "%s%s", dirpath, cideos);
+			// enc(combinename);
+		}
+
+		free(dlist);
+		// execl("/bin/sh", "/bin/sh", "-c", "echo", "haha", NULL);
+		exit(0);
+	}
 
 	(void) conn;
 	return NULL;
@@ -420,7 +550,7 @@ static int xmp_unlink(const char *ppath)
 	pid_t child1, child2;
 	int status;
 
-	int doBackup = 1;
+	int doBackup = 0;
 
 	// jika bukan file temporary kaya .swp, .swx
 	// .swo, dan .ekstensi~ (tilde)
@@ -726,7 +856,7 @@ static int xmp_write(const char *ppath, char *buf, size_t size,
 	strcpy(bkpath, "/Backup/");
 	strcat(bkpath, filname);
 
-	int doBackup = 1;
+	int doBackup = 0;
 
 	// pastikan bukan file temporary
 	// kaya .swx, .swp, .swo
@@ -808,6 +938,30 @@ static int xmp_create(const char *ppath, mode_t mode, struct fuse_file_info *fi)
 	return 0;
 }
 
+// Ketika akan unmount memanggil fungsi ini
+void destroy(void* private_data){
+	DIR *dp;
+	struct dirent *de;
+
+	char cideos[1000] = "/Videos/";
+	char vidpath[1000];
+	char filefullpath[1000];
+	enc(cideos);
+	sprintf(vidpath, "%s%s", dirpath, cideos);
+
+	dp = opendir(vidpath);
+
+	// Membaca seluruh isi dari Videos
+	while((de = readdir(dp)) != NULL) {
+		sprintf(filefullpath, "%s%s", vidpath, de->d_name);
+		// lalu menghapusnya
+		remove(filefullpath);
+	}
+
+	printf("\n\nTERLEPAS AKU\n\n");
+
+	closedir(dp);
+}
 
 static struct fuse_operations xmp_oper = {
 	.init		= pre_init,
@@ -826,7 +980,8 @@ static struct fuse_operations xmp_oper = {
 	.read		= xmp_read,
 	.write		= xmp_write,
 	.flush 		= xmp_flush,
-	.create 	= xmp_create
+	.create 	= xmp_create,
+	.destroy	= destroy
 };
 
 int main(int argc, char *argv[])
@@ -835,9 +990,10 @@ int main(int argc, char *argv[])
 	return fuse_main(argc, argv, &xmp_oper, NULL);
 }
 
-
 // 1 -> readdir, getattr
-// 2 -> mbuh
+// 2 -> pre_init, destroy
+//   -> sama fungsi utilitas buat komparasi
+//      string yang telah dienkrip (decalphasort)
 // 3 -> readdir (yang if banyak tadi)
 // 4 -> mkdir, utimens (waktu buat file), chmod
 // 5 -> fungsi utilitas *name (buat ngubah path)
